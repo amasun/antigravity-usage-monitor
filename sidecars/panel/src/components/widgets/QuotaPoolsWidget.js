@@ -21,22 +21,24 @@ import {
 } from '../../core/formatters.js';
 import { createSvgIcon } from '../../icons/SvgIcon.js';
 import { getEffectiveLocale, t } from '../../i18n/index.js';
+import { normalizeQuotaDisplayMode } from '../../../shared/settings-normalization.mjs';
 
 /**
  * 归一化动态配额池列表；在官方配额尚未返回时回退预占 Gemini 与 Claude & GPT 两个标准池槽位。
  *
  * @param {object|null|undefined} quotas
  * @param {number} minuteTick
- * @param {{ isPending?: boolean }} [options]
+ * @param {{ isPending?: boolean, showReserved?: boolean, quotaDisplayMode?: string }} [options]
  * @returns {Array<object>}
  */
 export function buildQuotaPoolItems(
   quotas,
   minuteTick = 0,
-  { isPending = false, showReserved = false } = {}
+  { isPending = false, showReserved = false, quotaDisplayMode = 'used' } = {}
 ) {
   const safeQuotas = quotas || {};
   const activePool = safeQuotas.activePool || {};
+  const normalizedDisplayMode = normalizeQuotaDisplayMode(quotaDisplayMode);
   const rawPools =
     Array.isArray(safeQuotas.pools) && safeQuotas.pools.length > 0
       ? safeQuotas.pools
@@ -62,6 +64,7 @@ export function buildQuotaPoolItems(
       minuteTick,
       isPending,
       showReserved: Boolean(showReserved),
+      quotaDisplayMode: normalizedDisplayMode,
     };
   });
   if (
@@ -154,6 +157,8 @@ export function formatQuotaSummaryFooter(quotas, account) {
 function syncQuotaWindowMeter({
   hasData,
   usedVal,
+  remVal = 0,
+  quotaDisplayMode = 'used',
   resetTime,
   fallbackMetaText,
   showReserved,
@@ -164,6 +169,7 @@ function syncQuotaWindowMeter({
   fillEl,
   fillReservedEl,
 }) {
+  const isRemainingMode = quotaDisplayMode === 'remaining';
   const numReserved = showReserved && hasData ? Number(rawReservedPct || 0) : 0;
   const rsvVal =
     Number.isFinite(numReserved) && numReserved >= 0.05 ? Math.min(usedVal, numReserved) : 0;
@@ -173,10 +179,15 @@ function syncQuotaWindowMeter({
   patchText(
     metaEl,
     hasData
-      ? t('quota.usedAndLeft', {
-          reset: resetStr,
-          used: formatPctNumber(usedVal),
-        })
+      ? isRemainingMode
+        ? t('quota.remainingAndLeft', {
+            reset: resetStr,
+            remaining: formatPctNumber(remVal),
+          })
+        : t('quota.usedAndLeft', {
+            reset: resetStr,
+            used: formatPctNumber(usedVal),
+          })
       : fallbackMetaText
   );
 
@@ -190,15 +201,20 @@ function syncQuotaWindowMeter({
         : t('quota.reservedTip', { rsv: rsvStr, actual: actualStr });
     patchAttr(metaEl, 'title', tipText);
     patchAttr(trackEl, 'title', tipText);
-    const actualWidth = +Math.min(100, actualVal).toFixed(2);
-    const rsvWidth = +Math.min(Math.max(0, 100 - actualWidth), rsvVal).toFixed(2);
-    patchStyleVar(fillEl, '--fill-w', `${actualWidth}%`);
+    const fillWidth = isRemainingMode
+      ? +Math.max(0, Math.min(100, remVal)).toFixed(2)
+      : +Math.min(100, actualVal).toFixed(2);
+    const rsvWidth = +Math.min(Math.max(0, 100 - fillWidth), rsvVal).toFixed(2);
+    patchStyleVar(fillEl, '--fill-w', `${fillWidth}%`);
     patchStyleVar(fillReservedEl, '--reserved-w', `${rsvWidth}%`);
-    patchClasses(fillReservedEl, { 'is-active': true, 'has-sep': actualWidth > 0 });
+    patchClasses(fillReservedEl, { 'is-active': true, 'has-sep': fillWidth > 0 });
   } else {
     patchAttr(metaEl, 'title', null);
     patchAttr(trackEl, 'title', null);
-    patchStyleVar(fillEl, '--fill-w', `${Math.min(100, usedVal)}%`);
+    const fillWidth = isRemainingMode
+      ? Math.max(0, Math.min(100, remVal))
+      : Math.min(100, usedVal);
+    patchStyleVar(fillEl, '--fill-w', `${fillWidth}%`);
     patchStyleVar(fillReservedEl, '--reserved-w', '0%');
     patchClasses(fillReservedEl, { 'is-active': false, 'has-sep': false });
   }
@@ -213,11 +229,20 @@ function syncQuotaWindowMeter({
  * 同步单个配额池行的 5h 及每周窗口状态。
  */
 export function syncPoolQuotaRow(refs, item, idx, rowEl) {
-  const { poolData, poolLabel, fallbackWeekly, isActivePool, isPending, showReserved } = item;
+  const {
+    poolData,
+    poolLabel,
+    fallbackWeekly,
+    isActivePool,
+    isPending,
+    showReserved,
+    quotaDisplayMode,
+  } = item;
   patchClasses(rowEl, { 'quota-pool-row': true, 'has-divider': idx > 0 });
 
   const has5h = poolData?.usedPct != null && poolData?.remainingPct != null;
   const used5hVal = has5h ? Number(poolData.usedPct) : 0;
+  const rem5hVal = has5h ? Number(poolData.remainingPct) : 0;
 
   const useCustomWeekly = Boolean(isActivePool && fallbackWeekly?.isOfficial === false);
   const wkUsedRaw = useCustomWeekly
@@ -231,6 +256,7 @@ export function syncPoolQuotaRow(refs, item, idx, rowEl) {
     : poolData?.weeklyResetTime || (isActivePool ? fallbackWeekly?.resetTime : null);
   const hasWk = wkUsedRaw != null && wkRemRaw != null;
   const usedWkVal = hasWk ? Number(wkUsedRaw) : 0;
+  const remWkVal = hasWk ? Number(wkRemRaw) : 0;
 
   const hide5h = !has5h && hasWk;
   const hideWk = !hasWk && has5h;
@@ -268,6 +294,8 @@ export function syncPoolQuotaRow(refs, item, idx, rowEl) {
   syncQuotaWindowMeter({
     hasData: has5h,
     usedVal: used5hVal,
+    remVal: rem5hVal,
+    quotaDisplayMode,
     resetTime: poolData?.resetTime,
     fallbackMetaText,
     showReserved: allowReserved,
@@ -313,6 +341,8 @@ export function syncPoolQuotaRow(refs, item, idx, rowEl) {
   syncQuotaWindowMeter({
     hasData: hasWk,
     usedVal: usedWkVal,
+    remVal: remWkVal,
+    quotaDisplayMode,
     resetTime: wkResetRaw,
     fallbackMetaText,
     showReserved: allowReserved && !useCustomWeekly,
@@ -329,7 +359,7 @@ export function quotaPoolRowSig(item, idx) {
   const c5h = item.poolData?.cycle5h;
   const cWk = item.poolData?.cycleWeekly;
   const fw = item.fallbackWeekly;
-  return `${getEffectiveLocale()}:${idx}:${item.poolLabel}:${item.isActivePool}:${Boolean(item.isPending)}:${Boolean(item.showReserved)}:${item.minuteTick}:${item.poolData?.usedPct}:${item.poolData?.remainingPct}:${item.poolData?.reservedPct}:${item.poolData?.reservedLeaseCount}:${item.poolData?.resetTime}:${item.poolData?.weeklyUsedPct}:${item.poolData?.weeklyRemainingPct}:${item.poolData?.weeklyReservedPct}:${item.poolData?.weeklyReservedLeaseCount}:${item.poolData?.weeklyResetTime}:${c5h?.tokens}:${c5h?.costUsd}:${c5h?.calls}:${cWk?.tokens}:${cWk?.costUsd}:${cWk?.calls}:${fw?.isOfficial}:${fw?.usedPct}:${fw?.remainingPct}:${fw?.resetTime}:${fw?.title}:${fw?.tokens}:${fw?.costUsd}:${fw?.calls}`;
+  return `${getEffectiveLocale()}:${idx}:${item.poolLabel}:${item.isActivePool}:${Boolean(item.isPending)}:${Boolean(item.showReserved)}:${item.quotaDisplayMode || 'used'}:${item.minuteTick}:${item.poolData?.usedPct}:${item.poolData?.remainingPct}:${item.poolData?.reservedPct}:${item.poolData?.reservedLeaseCount}:${item.poolData?.resetTime}:${item.poolData?.weeklyUsedPct}:${item.poolData?.weeklyRemainingPct}:${item.poolData?.weeklyReservedPct}:${item.poolData?.weeklyReservedLeaseCount}:${item.poolData?.weeklyResetTime}:${c5h?.tokens}:${c5h?.costUsd}:${c5h?.calls}:${cWk?.tokens}:${cWk?.costUsd}:${cWk?.calls}:${fw?.isOfficial}:${fw?.usedPct}:${fw?.remainingPct}:${fw?.resetTime}:${fw?.title}:${fw?.tokens}:${fw?.costUsd}:${fw?.calls}`;
 }
 
 /**
@@ -746,8 +776,12 @@ export const QuotaPoolsWidget = defineComponent({
     syncRatePopoverContent(null);
 
     function update({ data, minuteTick } = {}) {
+      const quotaDisplayMode = normalizeQuotaDisplayMode(data?.settings?.quotaDisplayMode);
       patchText(titleTextEl, t('module.quotas'));
-      patchText(legendActualTextEl, t('quota.legendActual'));
+      patchText(
+        legendActualTextEl,
+        quotaDisplayMode === 'remaining' ? t('quota.legendRemaining') : t('quota.legendActual')
+      );
       patchText(legendReservedTextEl, t('quota.legendReserved'));
       syncRatePopoverContent(data);
       if (!data) {
@@ -768,12 +802,16 @@ export const QuotaPoolsWidget = defineComponent({
       reserveLegendEl.hidden = !showReserved;
       const effTick = Number.isFinite(minuteTick) ? minuteTick : Math.floor(Date.now() / 30000);
       patchText(tierBadge, formatAccountTierBadge(data.account));
-      patchKeyedList(poolsListEl, buildQuotaPoolItems(quotas, effTick, { showReserved }), {
-        keyFn: (item) => item.key,
-        sigFn: quotaPoolRowSig,
-        createRow: createPoolQuotaRow,
-        updateRow: syncPoolQuotaRow,
-      });
+      patchKeyedList(
+        poolsListEl,
+        buildQuotaPoolItems(quotas, effTick, { showReserved, quotaDisplayMode }),
+        {
+          keyFn: (item) => item.key,
+          sigFn: quotaPoolRowSig,
+          createRow: createPoolQuotaRow,
+          updateRow: syncPoolQuotaRow,
+        }
+      );
     }
 
     return {

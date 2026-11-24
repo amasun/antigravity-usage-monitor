@@ -28,6 +28,7 @@ import {
   DEFAULT_CLIENT_OVERVIEW_METRICS,
   DEFAULT_CLIENT_OVERVIEW_MODULES,
   DEFAULT_CLIENT_POPOVER_WIDTH,
+  DEFAULT_CLIENT_QUOTA_DISPLAY_MODE,
   DEFAULT_CLIENT_STEP_COLUMNS,
   DEFAULT_CLIENT_STEP_TOKEN_COMBO_FORMAT,
   DEFAULT_CLIENT_TOPBAR_SLOTS,
@@ -40,6 +41,7 @@ import {
   normalizeClientOverviewModules,
   normalizeClientPopoverWidth,
   normalizeClientPopoverWidthMode,
+  normalizeClientQuotaDisplayMode,
   normalizeClientStepColumns,
   normalizeClientStepTokenComboFormat,
   normalizeClientTopbarSlots,
@@ -241,6 +243,7 @@ export const SettingsStructureTab = defineComponent({
     let draftHoverModules = [...DEFAULT_CLIENT_HOVER_MODULES];
     let draftOverviewModules = [...DEFAULT_CLIENT_OVERVIEW_MODULES];
     let draftOverviewMetrics = [...DEFAULT_CLIENT_OVERVIEW_METRICS];
+    let draftQuotaDisplayMode = DEFAULT_CLIENT_QUOTA_DISPLAY_MODE;
     let draftShowStepTurnRail = false;
     let draftShowStepAgentBadge = true;
     let draftShowStepSpeedColor = false;
@@ -286,6 +289,7 @@ export const SettingsStructureTab = defineComponent({
           hoverModules: draftHoverModules,
           overviewModules: draftOverviewModules,
           overviewMetrics: draftOverviewMetrics,
+          quotaDisplayMode: draftQuotaDisplayMode,
           showStepTurnRail: draftShowStepTurnRail,
           showStepAgentBadge: draftShowStepAgentBadge,
           showStepSpeedColor: draftShowStepSpeedColor,
@@ -980,6 +984,31 @@ export const SettingsStructureTab = defineComponent({
       hidden: true,
       text: t('settings.str.overviewMetricsInactiveHint'),
     });
+    const quotaDisplayLabelEl = h('span', {
+      className: 'form-label',
+      text: t('settings.str.quotaDisplayLabel'),
+    });
+
+    function getQuotaDisplayOptions() {
+      return [
+        { value: 'used', label: t('settings.str.quotaDisplayUsed') },
+        { value: 'remaining', label: t('settings.str.quotaDisplayRemaining') },
+      ];
+    }
+
+    const quotaDisplaySwitch = SegmentedControl({
+      ariaLabel: t('settings.str.quotaDisplayLabel'),
+      modelValue: draftQuotaDisplayMode,
+      options: getQuotaDisplayOptions(),
+      onUpdateModelValue: (val) => {
+        draftQuotaDisplayMode = normalizeClientQuotaDisplayMode(val);
+        syncOverviewSectionMeta();
+        props.onLayoutChange?.();
+        void persistStructurePatch(overviewSection, {
+          quotaDisplayMode: draftQuotaDisplayMode,
+        });
+      },
+    });
 
     const overviewModulesList = EditableSlotList({
       items: draftOverviewModules,
@@ -1033,6 +1062,7 @@ export const SettingsStructureTab = defineComponent({
       onReset: () => {
         draftOverviewModules = [...DEFAULT_CLIENT_OVERVIEW_MODULES];
         draftOverviewMetrics = [...DEFAULT_CLIENT_OVERVIEW_METRICS];
+        draftQuotaDisplayMode = DEFAULT_CLIENT_QUOTA_DISPLAY_MODE;
         syncOverviewSectionMeta();
         props.onLayoutChange?.();
         void persistStructurePatch(
@@ -1040,6 +1070,7 @@ export const SettingsStructureTab = defineComponent({
           {
             overviewModules: [...DEFAULT_CLIENT_OVERVIEW_MODULES],
             overviewMetrics: [...DEFAULT_CLIENT_OVERVIEW_METRICS],
+            quotaDisplayMode: DEFAULT_CLIENT_QUOTA_DISPLAY_MODE,
           },
           'settings.resetDone'
         );
@@ -1054,6 +1085,8 @@ export const SettingsStructureTab = defineComponent({
           overviewMetricsHintEl,
           overviewMetricsList.el,
         ]),
+        h('div', { className: 'settings-divider' }),
+        h('div', { className: 'form-row' }, [quotaDisplayLabelEl, quotaDisplaySwitch.el]),
       ],
     });
 
@@ -1076,6 +1109,11 @@ export const SettingsStructureTab = defineComponent({
         options: getOverviewMetricOptions(),
         addBtnTextFn: (count, max) => t('settings.str.addOverviewMetric', { count, max }),
       });
+      quotaDisplaySwitch.setProps({
+        ariaLabel: t('settings.str.quotaDisplayLabel'),
+        options: getQuotaDisplayOptions(),
+        modelValue: draftQuotaDisplayMode,
+      });
       const metricsModuleActive = draftOverviewModules.includes('metrics');
       patchAttr(overviewMetricsHintEl, 'hidden', metricsModuleActive);
       overviewSection.refs.setBadge(
@@ -1086,7 +1124,8 @@ export const SettingsStructureTab = defineComponent({
       );
       const isDefault =
         isSameList(draftOverviewModules, DEFAULT_CLIENT_OVERVIEW_MODULES) &&
-        isSameList(draftOverviewMetrics, DEFAULT_CLIENT_OVERVIEW_METRICS);
+        isSameList(draftOverviewMetrics, DEFAULT_CLIENT_OVERVIEW_METRICS) &&
+        draftQuotaDisplayMode === DEFAULT_CLIENT_QUOTA_DISPLAY_MODE;
       overviewSection.refs.setResetDisabled(isDefault);
       refreshOverviewPreview();
     }
@@ -1461,6 +1500,7 @@ export const SettingsStructureTab = defineComponent({
       draftHoverModules = normalizeClientHoverModules(settings.hoverModules);
       draftOverviewModules = normalizeClientOverviewModules(settings.overviewModules);
       draftOverviewMetrics = normalizeClientOverviewMetrics(settings.overviewMetrics);
+      draftQuotaDisplayMode = normalizeClientQuotaDisplayMode(settings.quotaDisplayMode);
       draftShowStepTurnRail = settings.showStepTurnRail === true;
       draftShowStepAgentBadge = settings.showStepAgentBadge !== false;
       draftShowStepSpeedColor = settings.showStepSpeedColor === true;
@@ -1503,6 +1543,7 @@ export const SettingsStructureTab = defineComponent({
       patchText(overviewModulesLabelEl, t('settings.str.overviewModulesLabel'));
       patchText(overviewMetricsLabelEl, t('settings.str.overviewMetricsLabel'));
       patchText(overviewMetricsHintEl, t('settings.str.overviewMetricsInactiveHint'));
+      patchText(quotaDisplayLabelEl, t('settings.str.quotaDisplayLabel'));
 
       stepsSection.refs.setTitle(t('settings.str.stepsSection'));
       stepsSection.refs.setResetLabel(t('settings.resetBtn'));
@@ -1570,6 +1611,7 @@ export const SettingsStructureTab = defineComponent({
       hoverModulesList.destroy();
       overviewModulesList.destroy();
       overviewMetricsList.destroy();
+      quotaDisplaySwitch.destroy();
       stepTurnRailToggle.destroy();
       stepAgentBadgeToggle.destroy();
       stepSpeedColorToggle.destroy();
@@ -1605,6 +1647,7 @@ export const SettingsStructureTab = defineComponent({
         hoverModulesList,
         overviewModulesList,
         overviewMetricsList,
+        quotaDisplaySwitch,
         stepTurnRailToggle,
         stepAgentBadgeToggle,
         stepSpeedColorToggle,

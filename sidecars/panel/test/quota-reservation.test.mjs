@@ -1490,3 +1490,115 @@ test('QuotaPoolsWidget renders circle-? hover popover for account-isolated model
     globalThis.window = origWindow;
   }
 });
+
+test('QuotaPoolsWidget supports quotaDisplayMode="remaining" for both percentage text and progress bar fill', async () => {
+  const { document } = createMockDom();
+  const origDocument = globalThis.document;
+  const origWindow = globalThis.window;
+  globalThis.document = document;
+  globalThis.window = {
+    innerWidth: 960,
+    innerHeight: 720,
+    addEventListener() {},
+    removeEventListener() {},
+    location: { origin: 'http://127.0.0.1:0', href: 'http://127.0.0.1:0/' },
+  };
+
+  try {
+    const [{ setI18nLanguage }, { QuotaPoolsWidget }] = await Promise.all([
+      import('../src/i18n/index.js'),
+      import('../src/components/widgets/QuotaPoolsWidget.js'),
+    ]);
+    setI18nLanguage('zh-CN');
+
+    const widget = QuotaPoolsWidget();
+    const baseData = {
+      settings: {
+        experimentalQuotaReservation: false,
+        quotaDisplayMode: 'remaining',
+      },
+      account: { tierName: 'Google AI Pro' },
+      quotas: {
+        pools: [
+          {
+            poolKey: 'Gemini',
+            poolLabel: 'Gemini',
+            family: 'Gemini',
+            usedPct: 4.1,
+            remainingPct: 95.9,
+            reservedPct: 1.0,
+            reservedLeaseCount: 1,
+            resetTime: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
+            weeklyUsedPct: 86.0,
+            weeklyRemainingPct: 14.0,
+            weeklyReservedPct: 0.5,
+            weeklyReservedLeaseCount: 1,
+            weeklyResetTime: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
+          },
+        ],
+        weekly: { isOfficial: true },
+      },
+    };
+
+    widget.refs.update({ data: baseData, minuteTick: 1 });
+    const metas = widget.el.querySelectorAll('.quota-win-meta');
+    assert.equal(metas.length, 2);
+    assert.match(metas[0].textContent, /· 剩余 95\.9%$/);
+    assert.match(metas[1].textContent, /· 剩余 14\.0%$/);
+
+    const fills = widget.el.querySelectorAll('.progress-fill');
+    assert.equal(fills[0].style.getPropertyValue('--fill-w'), '95.9%');
+    assert.equal(fills[0].classList.contains('tone-warn'), false);
+    assert.equal(fills[0].classList.contains('tone-danger'), false);
+    assert.equal(fills[1].style.getPropertyValue('--fill-w'), '14%');
+    assert.equal(fills[1].classList.contains('tone-danger'), true);
+
+    // With reservation enabled, legend switches to 剩余 and reserved segment is clamped cleanly
+    widget.refs.update({
+      data: {
+        ...baseData,
+        settings: { experimentalQuotaReservation: true, quotaDisplayMode: 'remaining' },
+      },
+      minuteTick: 2,
+    });
+    const legendEl = widget.el.querySelector('.quota-reserve-legend');
+    assert.equal(legendEl.hidden, false);
+    assert.match(legendEl.textContent, /剩余/);
+    assert.match(legendEl.textContent, /预占/);
+    const rsvBars = widget.el.querySelectorAll('.progress-fill-reserved');
+    assert.equal(rsvBars[0].style.getPropertyValue('--reserved-w'), '1%');
+    assert.equal(rsvBars[0].classList.contains('is-active'), true);
+
+    // English locale
+    setI18nLanguage('en-US');
+    widget.refs.update({
+      data: {
+        ...baseData,
+        settings: { experimentalQuotaReservation: true, quotaDisplayMode: 'remaining' },
+      },
+      minuteTick: 3,
+    });
+    const metasEn = widget.el.querySelectorAll('.quota-win-meta');
+    assert.match(metasEn[0].textContent, /· Left 95\.9%$/);
+    assert.match(legendEl.textContent, /Remaining/);
+
+    // Switching back to 'used' restores Used % and used-width bar
+    setI18nLanguage('zh-CN');
+    widget.refs.update({
+      data: {
+        ...baseData,
+        settings: { experimentalQuotaReservation: false, quotaDisplayMode: 'used' },
+      },
+      minuteTick: 4,
+    });
+    const metasUsed = widget.el.querySelectorAll('.quota-win-meta');
+    assert.match(metasUsed[0].textContent, /· 已用 4\.1%$/);
+    assert.equal(fills[0].style.getPropertyValue('--fill-w'), '4.1%');
+
+    widget.destroy();
+  } finally {
+    globalThis.document = origDocument;
+    globalThis.window = origWindow;
+  }
+});
+

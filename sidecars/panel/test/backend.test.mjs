@@ -1177,6 +1177,7 @@ test('preferences schema defaults match pre-refactor UI, migrate legacy none slo
   assert.equal(resetRes.updated.showStepAgentBadge, true);
   assert.equal(resetRes.updated.showStepSpeedColor, false);
   assert.equal(resetRes.updated.showStepFilterToolbar, false);
+  assert.equal(resetRes.updated.quotaDisplayMode, 'used');
   assert.deepEqual([...resetRes.updated.topbarCapsuleSlots], ['tps', 'ttft', 'context']);
 });
 

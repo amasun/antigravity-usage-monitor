@@ -557,6 +557,20 @@ export function normalizeContextAgentMode(raw) {
   return val === 'auto' ? 'auto' : 'main';
 }
 
+export const QUOTA_DISPLAY_MODES = Object.freeze(['used', 'remaining']);
+export const DEFAULT_QUOTA_DISPLAY_MODE = 'used';
+
+/**
+ * 归一化可用额度面板的展示模式（默认 `'used'` 显示已用比例，可选 `'remaining'` 显示剩余比例）。
+ *
+ * @param {unknown} raw
+ * @returns {'used'|'remaining'}
+ */
+export function normalizeQuotaDisplayMode(raw) {
+  const val = String(raw ?? '').trim().toLowerCase();
+  return val === 'remaining' || val === 'left' ? 'remaining' : 'used';
+}
+
 /**
  * 归一化配额预占估算开关（默认 `true`）。
  *
